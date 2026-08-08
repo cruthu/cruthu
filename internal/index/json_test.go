@@ -180,7 +180,7 @@ func TestLoadVerifiedAcceptsMergedUsrAliases(t *testing.T) {
 	}
 
 	// The point of keeping them: the sensor's spelling still resolves.
-	if _, ok := NewLookup(idx).Owner("/bin/sh"); !ok {
+	if _, ok := mustLookup(t, idx).Owner("/bin/sh"); !ok {
 		t.Error("/bin/sh is unowned; the alias table no longer does its job")
 	}
 }
@@ -511,7 +511,7 @@ func FuzzLoadVerified(f *testing.F) {
 		// The contract here is only that a query cannot panic, whatever alias
 		// set and paths the input described. A declared path may normalize onto
 		// another package's entry, so a miss is legal; a crash is not.
-		lookup := NewLookup(idx)
+		lookup := mustLookup(t, idx)
 		for _, p := range idx.Packages {
 			for _, file := range p.Files {
 				lookup.Owner(file)

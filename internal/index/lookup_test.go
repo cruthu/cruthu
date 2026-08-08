@@ -23,7 +23,7 @@ func TestLookupOwner(t *testing.T) {
 			},
 		},
 	}
-	lookup := NewLookup(idx)
+	lookup := mustLookup(t, idx)
 
 	tests := []struct {
 		name      string
@@ -96,7 +96,7 @@ func TestLookupNormalizesDeclaredPaths(t *testing.T) {
 		Packages: []Package{{ID: "deb:dash@1", Files: []string{"/bin/sh"}}},
 	}
 
-	lookup := NewLookup(idx)
+	lookup := mustLookup(t, idx)
 	for _, spelling := range []string{"/bin/sh", "/usr/bin/sh"} {
 		if _, ok := lookup.Owner(spelling); !ok {
 			t.Errorf("Owner(%q) found no owner", spelling)
@@ -115,7 +115,7 @@ func TestLookupFirstPackageWinsOnDuplicatePath(t *testing.T) {
 		},
 	}
 
-	pkg, ok := NewLookup(idx).Owner("/usr/bin/x")
+	pkg, ok := mustLookup(t, idx).Owner("/usr/bin/x")
 	if !ok {
 		t.Fatal("Owner found no owner for a duplicated path")
 	}
@@ -129,7 +129,7 @@ func TestLookupEmptyIndex(t *testing.T) {
 
 	// An index with no packages must report everything as unowned rather than
 	// failing open and reporting everything as fine.
-	lookup := NewLookup(&Index{SchemaVersion: SchemaVersion})
+	lookup := mustLookup(t, &Index{SchemaVersion: SchemaVersion})
 	if _, ok := lookup.Owner("/usr/bin/ls"); ok {
 		t.Error("Owner found an owner in an empty index")
 	}
@@ -170,13 +170,21 @@ func FuzzLookupOwner(f *testing.F) {
 			Aliases:       []Alias{{From: from1, To: to1}, {From: from2, To: to2}},
 			Packages:      []Package{{ID: "deb:a@1", Files: []string{declared}}},
 		}
-		lookup := NewLookup(idx)
+		// A set with no fixed point is a legal input and a refusal is the
+		// correct answer to it, so it ends this case rather than failing it.
+		lookup, err := NewLookup(idx)
+		if err != nil {
+			return
+		}
 
 		// The same alias set NewLookup builds internally, so the test can ask
 		// what a path normalizes to without asserting a particular spelling.
 		// The spelling is an implementation detail; that both sides agree on it
 		// is the contract.
-		aliases := NewAliases(idx.Aliases)
+		aliases, err := NewAliases(idx.Aliases)
+		if err != nil {
+			t.Fatalf("NewLookup accepted an alias set NewAliases rejected: %v", err)
+		}
 
 		// A declared path must always be found by its own spelling. This is the
 		// floor: if it fails, the index cannot recognize the files it just
@@ -224,4 +232,27 @@ func FuzzLookupOwner(f *testing.F) {
 			}
 		}
 	})
+}
+
+// mustLookup builds a Lookup and fails the test if the alias set does not
+// converge. Tests that are about a non-converging set call NewLookup directly.
+func mustLookup(t *testing.T, idx *Index) Lookup {
+	t.Helper()
+
+	l, err := NewLookup(idx)
+	if err != nil {
+		t.Fatalf("NewLookup: %v", err)
+	}
+	return l
+}
+
+// mustAliases is mustLookup's counterpart for an alias set on its own.
+func mustAliases(t *testing.T, in []Alias) *Aliases {
+	t.Helper()
+
+	a, err := NewAliases(in)
+	if err != nil {
+		t.Fatalf("NewAliases: %v", err)
+	}
+	return a
 }
