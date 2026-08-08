@@ -31,7 +31,7 @@ Early development. Interfaces and output schemas are unstable until 1.0. Do not 
 
 > **0.1 is in progress.** The commands below are the target shape of the release, not all of them work yet. See the command table for what has landed, and [ROADMAP.md](ROADMAP.md) for what is coming.
 
-> Requires Go 1.23+ and a recorded event export from Tetragon or Tracee. `examples/demo/` will carry a fully reproducible walkthrough that runs a container, injects a fake malicious binary, and shows `cruthu` catching it.
+> Requires Go 1.26+ and a recorded event export from Tetragon or Tracee. `examples/demo/` will carry a fully reproducible walkthrough that runs a container, injects a fake malicious binary, and shows `cruthu` catching it.
 
 ```bash
 # Build the file-to-package index for an image
