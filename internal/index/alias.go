@@ -178,7 +178,10 @@ type Aliases struct {
 // are dropped rather than stored, so Normalize never has to defend against
 // them.
 func NewAliases(in []Alias) *Aliases {
-	entries := make([]Alias, 0, len(in))
+	// Grown rather than pre-sized: len(in) is an entry count taken straight
+	// from the index file, and sizing an allocation from an attacker-supplied
+	// number is what the house rules forbid. Real tables hold four entries.
+	var entries []Alias
 	for _, a := range in {
 		from, to := cleanAbs(a.From), cleanAbs(a.To)
 		if from == "" || to == "" || from == "/" || to == "/" || from == to {
