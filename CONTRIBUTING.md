@@ -51,7 +51,7 @@ Please run `make lint` and `make test` before opening a pull request. The same c
 
 ## Coding standards
 
-The house rules live in `AGENTS.md` (also mirrored as `CLAUDE.md`) so that both human and AI contributors work from the same guardrails. The essentials:
+The house rules live in [CLAUDE.md](CLAUDE.md), mirrored as `AGENTS.md` (a symlink), so that both human and AI contributors work from the same guardrails. The essentials:
 
 - **All external input is hostile.** SBOMs, event streams, and image filesystems are attacker-controlled. Never panic on malformed input; return an error. Every error path gets a test.
 - **No new dependencies without justification.** List and justify any new dependency in the pull request description. Prefer the standard library. New dependencies receive extra scrutiny because they are our largest supply-chain exposure.

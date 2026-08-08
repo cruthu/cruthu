@@ -29,7 +29,9 @@ Early development. Interfaces and output schemas are unstable until 1.0. Do not 
 
 ## Quick start
 
-> Requires Go 1.23+ and a recorded event export from Tetragon or Tracee. See `examples/demo/` for a fully reproducible walkthrough that runs a container, injects a fake malicious binary, and shows `cruthu` catching it.
+> **0.1 is in progress.** The commands below are the target shape of the release, not all of them work yet. See the command table for what has landed, and [ROADMAP.md](ROADMAP.md) for what is coming.
+
+> Requires Go 1.23+ and a recorded event export from Tetragon or Tracee. `examples/demo/` will carry a fully reproducible walkthrough that runs a container, injects a fake malicious binary, and shows `cruthu` catching it.
 
 ```bash
 # Build the file-to-package index for an image
@@ -49,8 +51,8 @@ Exit codes: `0` clean, `1` drift at or above the threshold, `2` tool error.
 
 | Command | Purpose | Status |
 |---|---|---|
-| `cruthu index` | Build a file-to-package index from an image and its SBOM | available |
-| `cruthu check` | Offline reconcile of an event log against an SBOM | available |
+| `cruthu index` | Build a file-to-package index from an image and its SBOM | in progress, 0.1 |
+| `cruthu check` | Offline reconcile of an event log against an SBOM | in progress, 0.1 |
 | `cruthu watch` | Live reconcile from a Tetragon or Tracee stream | planned 0.2 |
 | `cruthu cve` | Prioritize scanner findings by in-use packages | planned 0.3 |
 | `cruthu slim` | Emit a debloat recommendation (report or apko YAML) | planned 0.4 |
@@ -60,6 +62,16 @@ Exit codes: `0` clean, `1` drift at or above the threshold, `2` tool error.
 See [ROADMAP.md](ROADMAP.md) for the full 0.1 to 2.0 plan.
 
 ## Install
+
+Until the first tagged release, build from source:
+
+```bash
+git clone https://github.com/cruthu/cruthu
+cd cruthu
+make build          # produces ./bin/cruthu
+```
+
+From the first release onward:
 
 ```bash
 go install cruthu.dev/core/cmd/cruthu@latest
