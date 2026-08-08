@@ -28,5 +28,10 @@ go.work.sum
 bin/
 coverage.out
 
+# Binaries dropped at the repo root by `go build ./cmd/...` or `go build main.go`.
+# Anchored so these never mask a real source directory of the same name.
+/cruthu
+/main
+
 # Personal notes
 personal_notes/
