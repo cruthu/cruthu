@@ -17,7 +17,7 @@ permissions:
   contents: read
 
 env:
-  GO_VERSION: "1.23"
+  GO_VERSION: "1.26"
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -81,15 +81,12 @@ jobs:
       # cruthu's pitch is supply-chain trust, so it eats its own dogfood: a
       # reachable known vulnerability in our own dependencies fails the build.
       #
-      # govulncheck itself now needs a newer toolchain than the one this module
-      # targets, and setup-go pins GOTOOLCHAIN=local. Relaxing it for the
-      # install lets the tool build; it still analyzes this module against the
-      # go directive in go.mod. Pinning the analyzer to an old release instead
-      # would mean scanning against a stale vulnerability database, which is
-      # the opposite of what this job is for.
+      # The analyzer floats at @latest deliberately: pinning it would mean
+      # scanning against a stale vulnerability database, which is the opposite
+      # of what this job is for. It builds under the toolchain setup-go pins,
+      # so no GOTOOLCHAIN relaxation is needed while go.mod tracks a current
+      # Go release.
       - name: install govulncheck
-        env:
-          GOTOOLCHAIN: auto
         run: go install golang.org/x/vuln/cmd/govulncheck@latest
       - name: govulncheck
         run: govulncheck ./...
