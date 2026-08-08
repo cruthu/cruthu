@@ -51,7 +51,7 @@ Please run `make lint` and `make test` before opening a pull request. The same c
 
 ## Coding standards
 
-The house rules live in `AGENTS.md` (also mirrored as `CLAUDE.md`) so that both human and AI contributors work from the same guardrails. The essentials:
+The house rules live in [CLAUDE.md](CLAUDE.md), mirrored as `AGENTS.md` (a symlink), so that both human and AI contributors work from the same guardrails. The essentials:
 
 - **All external input is hostile.** SBOMs, event streams, and image filesystems are attacker-controlled. Never panic on malformed input; return an error. Every error path gets a test.
 - **No new dependencies without justification.** List and justify any new dependency in the pull request description. Prefer the standard library. New dependencies receive extra scrutiny because they are our largest supply-chain exposure.
@@ -63,7 +63,7 @@ The house rules live in `AGENTS.md` (also mirrored as `CLAUDE.md`) so that both 
 
 Every change passes through several gates:
 
-1. **Automated checks** in CI: vet, linters including gosec, staticcheck, govulncheck, semgrep, secret scanning, the race detector, and a short fuzz pass on the parsers.
+1. **Automated checks** in CI: vet, linters including gosec, staticcheck, govulncheck, the race detector, a dependency review, and a short fuzz pass on the parsers.
 2. **An adversarial review pass** framed around hostile input and, for reconciler changes, the question "could this be made to miss real drift?" A false negative that hides drift is treated as more serious than a crash.
 3. **Human maintainer review** focused on architecture, trust boundaries, and whether the change can be explained out loud.
 

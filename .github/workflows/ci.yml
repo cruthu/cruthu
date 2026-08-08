@@ -1,0 +1,153 @@
+# Gate 1 of the review pipeline: everything a machine can decide without a
+# human. See docs/development-workflow.md for the gates that follow.
+#
+# Jobs are split rather than chained so that one failure does not mask the
+# others; a contributor should learn about every machine-detectable problem in
+# a single run.
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  merge_group:
+
+permissions:
+  contents: read
+
+env:
+  GO_VERSION: "1.23"
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: build and vet
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          check-latest: true
+      - run: go build ./...
+      - run: go vet ./...
+      - name: go.mod and go.sum are tidy
+        run: |
+          go mod tidy
+          git diff --exit-code go.mod go.sum
+
+  test:
+    name: test (race)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          check-latest: true
+      - name: go test -race
+        run: go test -race -count=1 -coverprofile=coverage.out ./...
+      - name: coverage summary
+        run: go tool cover -func=coverage.out | tail -1
+
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          check-latest: true
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.12.2
+          args: --timeout=5m
+
+  vuln:
+    name: govulncheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          check-latest: true
+      # cruthu's pitch is supply-chain trust, so it eats its own dogfood: a
+      # reachable known vulnerability in our own dependencies fails the build.
+      #
+      # govulncheck itself now needs a newer toolchain than the one this module
+      # targets, and setup-go pins GOTOOLCHAIN=local. Relaxing it for the
+      # install lets the tool build; it still analyzes this module against the
+      # go directive in go.mod. Pinning the analyzer to an old release instead
+      # would mean scanning against a stale vulnerability database, which is
+      # the opposite of what this job is for.
+      - name: install govulncheck
+        env:
+          GOTOOLCHAIN: auto
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+      - name: govulncheck
+        run: govulncheck ./...
+
+  fuzz:
+    name: fuzz (short)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          check-latest: true
+      # Every parser of untrusted input carries a fuzz target. This pass is
+      # deliberately short; the real budget is in fuzz-nightly.yml.
+      - name: short fuzz pass
+        run: ./scripts/fuzz.sh 30s
+      - name: upload crashers
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: fuzz-testdata
+          path: "**/testdata/fuzz/**"
+          if-no-files-found: ignore
+
+  deps:
+    name: dependency review
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v7
+      # New dependencies are the largest supply-chain exposure in the project
+      # and the thing an AI-assisted change adds most casually, so every
+      # addition is surfaced in the review and blocked on known vulnerabilities.
+      - uses: actions/dependency-review-action@v5
+        with:
+          fail-on-severity: low
+          comment-summary-in-pr: on-failure
+
+  dco:
+    name: DCO sign-off
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: every commit is signed off
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          missing=0
+          while read -r sha; do
+            [ -n "$sha" ] || continue
+            if ! git log -1 --format='%B' "$sha" | grep -qiE '^Signed-off-by: .+ <.+@.+>$'; then
+              echo "::error::commit $sha is missing a Signed-off-by line (use 'git commit -s')"
+              missing=1
+            fi
+          done < <(git rev-list "$BASE_SHA..$HEAD_SHA")
+          exit $missing

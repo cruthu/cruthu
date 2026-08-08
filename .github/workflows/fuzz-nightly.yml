@@ -1,0 +1,57 @@
+# Long fuzz runs, nightly.
+#
+# The per-PR pass in ci.yml is 30 seconds per target, which catches shallow
+# crashes and nothing else. Real coverage comes from budget, so the parsers get
+# hours here. A crash found overnight becomes an issue with a checked-in seed
+# corpus entry, which then guards the fix forever.
+
+name: fuzz-nightly
+
+on:
+  schedule:
+    - cron: "0 4 * * *"
+  workflow_dispatch:
+    inputs:
+      fuzztime:
+        description: Fuzz budget per target
+        required: false
+        default: 30m
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  fuzz:
+    name: fuzz (long)
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.23"
+          check-latest: true
+
+      # Cache the generated corpus between runs so each night starts from the
+      # coverage the previous night reached rather than from the seeds.
+      - name: restore fuzz corpus
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/go-build/fuzz
+          key: fuzz-corpus-${{ github.sha }}
+          restore-keys: fuzz-corpus-
+
+      - name: long fuzz pass
+        run: ./scripts/fuzz.sh "${{ inputs.fuzztime || '30m' }}"
+
+      # A crasher is written to testdata/fuzz/<Target>/ as a reproducer. Keep
+      # it: it is the regression test.
+      - name: upload crashers
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: fuzz-crashers
+          path: "**/testdata/fuzz/**"
+          if-no-files-found: ignore
+          retention-days: 90

@@ -1,0 +1,94 @@
+# Linter configuration for cruthu (golangci-lint v2 format).
+#
+# The enabled set is weighted toward the failure modes that actually matter
+# here: unchecked errors on a parse path, resource leaks in the watch path, and
+# the gosec rules covering path handling and file permissions. Style linters
+# are kept minimal so that a failing lint run means something.
+
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  default: none
+  enable:
+    # Correctness and safety
+    - govet
+    - staticcheck     # subsumes gosimple and stylecheck in v2
+    - errcheck        # an ignored error on a parse path is how a tool fails open
+    - gosec           # path traversal, file permissions, weak crypto
+    - bodyclose       # leaked HTTP bodies in the registry client (slice 6)
+    - noctx           # every network call must be cancellable
+    - contextcheck
+    - nilerr          # returning nil after a non-nil error check: fails open
+    - errorlint       # errors.Is/As over == and bare type assertions
+    - makezero
+    - unconvert
+    - copyloopvar
+
+    # Hygiene
+    - ineffassign
+    - unused
+    - misspell
+    - revive
+
+  settings:
+    errcheck:
+      check-type-assertions: true
+      check-blank: true
+
+    gosec:
+      excludes:
+        # G104 duplicates errcheck, which is configured more strictly above.
+        - G104
+
+    govet:
+      enable-all: true
+      disable:
+        - fieldalignment # readability wins over struct packing at this scale
+
+    revive:
+      rules:
+        - name: exported
+          arguments: [checkPrivateReceivers]
+        - name: error-strings
+        - name: error-return
+        - name: context-as-argument
+        - name: indent-error-flow
+
+    misspell:
+      locale: US
+
+  exclusions:
+    # The default exclusion presets hide a lot, including gosec findings in
+    # tests. Hostile-input tests are exactly where we want to see them.
+    generated: lax
+    presets:
+      - comments
+      - std-error-handling
+
+    rules:
+      # Test fixtures legitimately construct hostile paths and permissions.
+      - path: _test\.go
+        linters:
+          - gosec
+      # Doc comments on test helpers add noise without adding safety.
+      - path: _test\.go
+        linters:
+          - revive
+        text: exported
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - cruthu.dev/core
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
