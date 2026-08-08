@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -207,6 +208,26 @@ func FuzzReadJSON(f *testing.F) {
 	f.Add("{")
 	f.Add("\x00")
 
+	// Seeds carrying the exact schema version are the only ones that reach
+	// validate, NewLookup, and the round trip; everything else stops at the
+	// version check. Random mutation does not reinvent that string, so the
+	// depth this target reaches is bounded by how many valid seeds it starts
+	// from, and each one below opens a lineage into a different behavior.
+	f.Add(`{"schemaVersion":"cruthu.dev/index/v0","aliases":[{"from":"/lib","to":"/usr/lib"},{"from":"/usr/lib","to":"/usr/lib64"}],"packages":[{"id":"deb:a@1","files":["/usr/lib64/x.so"]}]}`)
+	f.Add(`{"schemaVersion":"cruthu.dev/index/v0","aliases":[{"from":"/a","to":"/b"},{"from":"/b","to":"/a"}],"packages":[{"id":"deb:a@1","files":["/a/x"]}]}`)
+	f.Add(`{"schemaVersion":"cruthu.dev/index/v0","packages":[{"id":"deb:a@1","files":["/usr/bin/../../etc/shadow","/usr/bin/./ls","usr/bin/relative"]}]}`)
+	f.Add(`{"schemaVersion":"cruthu.dev/index/v0","aliases":[{"from":"/bin","to":"/usr/bin"}],"packages":[{"id":"deb:a@1","files":["/binary/x"]}]}`)
+	f.Add(`{"schemaVersion":"cruthu.dev/index/v0","packages":[{"id":"deb:a@1","files":["/usr/bin/x"]},{"id":"deb:a@1","files":["/usr/bin/x"]}]}`)
+	f.Add(`{"schemaVersion":"cruthu.dev/index/v0","aliases":[{"from":"/","to":"/usr"},{"from":"","to":""},{"from":"/x","to":"/x"}],"packages":[{"id":"deb:a@1","files":["/usr/bin/x"]}]}`)
+	f.Add(`{"schemaVersion":"cruthu.dev/index/v0","aliases":[{"from":"/bin","to":"../../etc"}],"packages":[{"id":"deb:a@1","files":["/bin/sh"]}]}`)
+	f.Add("{\"schemaVersion\":\"cruthu.dev/index/v0\",\"packages\":[{\"id\":\"deb:a@1\",\"files\":[\"/usr/bin/\xff\"]}]}")
+	// Timestamp spellings that survive the round trip as a different *Location
+	// for the same instant. Seeded because the round-trip comparison below has
+	// to treat them as equal, and a regression there would look like a data
+	// loss finding rather than the formatting artifact it is.
+	f.Add(`{"schemaVersion":"cruthu.dev/index/v0","source":{"kind":"rootfs","reference":"x","builtAt":"2026-08-08T12:00:00+00:00"},"packages":[]}`)
+	f.Add(`{"schemaVersion":"cruthu.dev/index/v0","source":{"kind":"rootfs","reference":"x","builtAt":"2026-08-08T12:00:00-05:30"},"packages":[]}`)
+
 	f.Fuzz(func(t *testing.T, in string) {
 		idx, err := ReadJSON(strings.NewReader(in))
 		if err != nil {
@@ -233,14 +254,41 @@ func FuzzReadJSON(f *testing.F) {
 		}
 		lookup.Owner("/tmp/kdevtmpfsi")
 
-		// A written index must read back, or WriteJSON and ReadJSON disagree
-		// about the schema they share.
+		// A written index must read back unchanged, or WriteJSON and ReadJSON
+		// disagree about the schema they share.
+		//
+		// The comparison is the point, not just the absence of an error. An
+		// index that survives the round trip having quietly lost a package or
+		// dropped a declared path still parses cleanly, and every path it lost
+		// becomes a file no package claims — drift reported as legitimate, or
+		// legitimate files reported as drift. A crash here would be visible;
+		// this is the failure that would not be.
 		var buf bytes.Buffer
 		if err := WriteJSON(&buf, idx); err != nil {
 			t.Fatalf("WriteJSON on a parsed index: %v", err)
 		}
-		if _, err := ReadJSON(&buf); err != nil && !errors.Is(err, io.EOF) {
-			t.Fatalf("round trip failed: %v", err)
+		again, rereadErr := ReadJSON(&buf)
+		if rereadErr != nil && !errors.Is(rereadErr, io.EOF) {
+			t.Fatalf("round trip failed: %v", rereadErr)
+		}
+		if rereadErr != nil {
+			return
+		}
+
+		// BuiltAt is compared as an instant, not structurally. A time.Time
+		// carries a *Location, and "+00:00" parses to a fixed zone that
+		// marshals back as "Z" and re-parses as time.UTC — the same instant
+		// behind a different pointer. Comparing it structurally would fail on
+		// that spelling alone, and a fuzz target that cries wolf is worse than
+		// one that does not exist, because it teaches people to skip the
+		// output. Nothing about drift turns on which spelling of UTC was used.
+		if !idx.Source.BuiltAt.Equal(again.Source.BuiltAt) {
+			t.Fatalf("round trip moved builtAt: %v then %v", idx.Source.BuiltAt, again.Source.BuiltAt)
+		}
+		before, after := *idx, *again
+		before.Source.BuiltAt, after.Source.BuiltAt = time.Time{}, time.Time{}
+		if !reflect.DeepEqual(before, after) {
+			t.Fatalf("round trip changed the index:\n before: %+v\n after:  %+v", before, after)
 		}
 	})
 }
