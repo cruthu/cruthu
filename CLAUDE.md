@@ -31,7 +31,7 @@ Corollaries:
 
 - **Never panic on malformed input.** Return an error. Panics are for programmer invariants, never for data.
 - **Bound every allocation derived from input.** No `make([]T, n)` where `n` came from a file. Cap line lengths, element counts, and decompressed sizes with named constants, and test the caps.
-- **Path handling is a security boundary.** Use `filepath.Clean` plus explicit confinement checks on any path derived from input. Prefer `fs.FS` over path strings — `fs.ValidPath` rejects `..`, absolute paths, and empty elements, and `os.DirFS` does not escape its root. Assume symlink and traversal attacks on image filesystems.
+- **Path handling is a security boundary.** Use `filepath.Clean` plus explicit confinement checks on any path derived from input. Prefer `fs.FS` over path strings, and open an untrusted filesystem with `os.OpenRoot` + `Root.FS()` — **not** `os.DirFS`, which follows a symlink out of its own tree exactly as `os.Open` would (see `docs/decisions/0003-rootfs-confinement.md`). `fs.ValidPath` rejects `..`, absolute paths, and empty elements, but it only checks the name being requested; it says nothing about what the filesystem contains. Assume symlink and traversal attacks on image filesystems.
 - **Verify before you parse** where signatures are involved, not after.
 - Decompression is a trust boundary too: assume zip bombs in image layers.
 

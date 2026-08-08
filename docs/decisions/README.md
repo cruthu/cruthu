@@ -14,3 +14,5 @@ Entries are numbered, immutable once merged, and superseded rather than edited. 
 | # | Decision |
 |---|---|
 | [0001](0001-index-is-the-spine.md) | The file-to-package index, not the SBOM, is the authority on paths |
+| [0002](0002-path-aliasing.md) | Directory-symlink aliasing is detection logic, and it ships in the index |
+| [0003](0003-rootfs-confinement.md) | `os.Root`, not `os.DirFS`, is what confines a rootfs |
