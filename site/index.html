@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>cruthu — prove what's running is what you built</title>
+<meta name="description" content="cruthu reconciles a container's build-time SBOM against what it actually executes at runtime, and emits signed evidence of the result.">
+<link rel="stylesheet" href="/assets/style.css">
+</head>
+<body>
+<main>
+
+<h1>cruthu</h1>
+
+<p class="tagline">Verify that what's running in your container is what the SBOM says was built, and
+produce signed, portable evidence of it.</p>
+
+<p class="meta"><strong>cruthú</strong> (KRUH-hoo): Irish for <em>proof</em>; also <em>to create, to
+form</em>. Written <code>cruthu</code>, without the fada, everywhere it has to be typed.</p>
+
+<p>An SBOM is a contract written at build time. Runtime is reality. <code>cruthu</code> reconciles the
+two: it reads a container's build-time SBOM, watches which binaries and libraries the container
+actually loads and executes, and reports the difference.</p>
+
+<p>From that one data stream come three things:</p>
+
+<ul>
+  <li><strong>Drift detection.</strong> Binaries or shared libraries that run but were never declared
+  in the SBOM. This catches injected payloads, dropped cryptominers, and interactive
+  <code>apt install</code> sessions in production.</li>
+  <li><strong>In-use analysis.</strong> Which declared packages actually loaded, so you can prioritize
+  the CVEs that matter. Most vulnerabilities in a typical image sit in code that never executes.</li>
+  <li><strong>Runtime attestation.</strong> A cosign-signed, in-toto statement asserting that an image
+  ran for a given window with zero drift — supply-chain provenance extended past deploy into
+  production.</li>
+</ul>
+
+<h2>Status</h2>
+
+<p class="note"><strong>Early development; 0.1 is still in progress.</strong> The binary currently
+builds and reports its version; <code>index</code> and <code>check</code> are being written now.
+Interfaces and output schemas are unstable until 1.0 — do not build production compliance workflows on
+the JSON or attestation schemas before they are frozen. Schema-affecting changes are logged in the
+<a href="https://github.com/cruthu/cruthu/tree/main/docs/decisions">decision log</a>.</p>
+
+<p>This page describes the tool honestly, including what does not exist yet, because the alternative is
+a security product whose landing page is the least reliable document in the project.</p>
+
+<h2>The shape of it</h2>
+
+<p>The target interface for 0.1, offline and single-container:</p>
+
+<pre><code># Build the file-to-package index for an image
+cruthu index ghcr.io/example/app:1.4.0 --output app.index.json
+
+# Reconcile a recorded event stream against the SBOM
+cruthu check \
+  --sbom app.sbom.json \
+  --index app.index.json \
+  --events tetragon-export.json \
+  --fail-on critical</code></pre>
+
+<p>Exit codes: <code>0</code> clean, <code>1</code> drift at or above the threshold, <code>2</code>
+tool error. A parse failure or an unreadable index is always <code>2</code>, never <code>0</code> — a
+pipeline must never read "the tool broke" as "the image is clean."</p>
+
+<div class="table-scroll">
+<table>
+<thead><tr><th>Command</th><th>Purpose</th><th>Status</th></tr></thead>
+<tbody>
+<tr><td><code>index</code></td><td>Build a file-to-package index from an image and its SBOM</td><td>in progress, 0.1</td></tr>
+<tr><td><code>check</code></td><td>Offline reconcile of an event log against an SBOM</td><td>in progress, 0.1</td></tr>
+<tr><td><code>watch</code></td><td>Live reconcile from a Tetragon or Tracee stream</td><td>planned 0.2</td></tr>
+<tr><td><code>cve</code></td><td>Prioritize scanner findings by in-use packages</td><td>planned 0.3</td></tr>
+<tr><td><code>slim</code></td><td>Emit a debloat recommendation (report or apko YAML)</td><td>planned 0.4</td></tr>
+<tr><td><code>attest</code></td><td>Produce a signed runtime-conformance attestation</td><td>planned 0.5</td></tr>
+<tr><td><code>verify</code></td><td>Verify an existing runtime attestation on an image</td><td>planned 0.5</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2>Install</h2>
+
+<p>Until the first tagged release, build from source:</p>
+
+<pre><code>git clone https://github.com/cruthu/cruthu
+cd cruthu
+make build          # produces ./bin/cruthu</code></pre>
+
+<p>From the first release onward:</p>
+
+<pre><code>go install cruthu.dev/core/cmd/cruthu@latest</code></pre>
+
+<p>The <a href="/core/">module path</a> is served from this domain rather than from the code host, so
+imports stay stable even if the repository moves.</p>
+
+<h2>Inputs it speaks</h2>
+
+<ul>
+  <li><strong>SBOM formats:</strong> CycloneDX JSON, SPDX JSON — the formats Syft emits.</li>
+  <li><strong>Event sources:</strong> Tetragon (export file and live stream), Tracee (JSON). New
+  sources plug in through a stable adapter interface.</li>
+  <li><strong>Image package databases:</strong> dpkg, apk, rpm, for building the file-to-package index
+  directly when the SBOM lacks file-level detail.</li>
+</ul>
+
+<h2>What it is not</h2>
+
+<ul>
+  <li><strong>Not an eBPF agent (yet).</strong> v1 consumes events from existing sensors rather than
+  maintaining its own kernel probes.</li>
+  <li><strong>Not an anomaly detector.</strong> Matching is deterministic against a declared manifest.
+  No machine learning, no baseline learning mode.</li>
+  <li><strong>Not an image mutator.</strong> The debloat feature emits recommendations. It never strips
+  your image, so it can never break your image.</li>
+  <li><strong>Not an enforcement agent</strong> in the open-source core. It reports, and exits nonzero
+  for CI gating. See <a href="/open-core/">where that line sits</a>.</li>
+</ul>
+
+<nav class="pages">
+  <a href="/why/">Why another container security tool</a>
+  <a href="/open-core/">Open core</a>
+  <a href="https://github.com/cruthu/cruthu">Source</a>
+  <a href="https://github.com/cruthu/cruthu/blob/main/ROADMAP.md">Roadmap</a>
+  <a href="https://github.com/cruthu/cruthu/blob/main/SECURITY.md">Security</a>
+</nav>
+
+<footer>
+<p>Apache-2.0. Built on the shoulders of Syft, Tetragon, Tracee, Sigstore/cosign, in-toto, and the OCI
+ecosystem.</p>
+</footer>
+
+</main>
+</body>
+</html>

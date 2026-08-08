@@ -1,0 +1,215 @@
+/* cruthu.dev — one stylesheet, no external assets.
+ *
+ * Nothing here loads a font, a script, or an image from another host, which is
+ * what lets site/_headers set a Content-Security-Policy of default-src 'none'.
+ * Keep it that way: this origin also answers Go module resolution, so the less
+ * it executes, the smaller the surface behind a supply-chain-critical route. */
+
+:root {
+  color-scheme: light dark;
+
+  --bg: #fbfaf8;
+  --fg: #1b1a18;
+  --muted: #5c5850;
+  --rule: #e2ded6;
+  --accent: #7a3311;
+  --code-bg: #f2efe9;
+  --note-bg: #f5f2ec;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #17181a;
+    --fg: #e7e5e1;
+    --muted: #9d9890;
+    --rule: #2e3033;
+    --accent: #e8945e;
+    --code-bg: #202225;
+    --note-bg: #1d1f21;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 17px;
+  line-height: 1.65;
+  -webkit-text-size-adjust: 100%;
+}
+
+main {
+  max-width: 43rem;
+  margin: 0 auto;
+  padding: 3.5rem 1.5rem 5rem;
+}
+
+h1 {
+  font-size: 2rem;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  margin: 0 0 0.75rem;
+}
+
+h2 {
+  font-size: 1.2rem;
+  line-height: 1.3;
+  margin: 2.75rem 0 0.75rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--rule);
+}
+
+h3 {
+  font-size: 1rem;
+  margin: 1.75rem 0 0.5rem;
+}
+
+p,
+ul,
+ol,
+table {
+  margin: 0 0 1.1rem;
+}
+
+a {
+  color: var(--accent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+
+strong {
+  font-weight: 650;
+}
+
+.lede {
+  font-size: 1.2rem;
+  line-height: 1.5;
+  color: var(--fg);
+}
+
+.tagline {
+  font-size: 1.25rem;
+  line-height: 1.45;
+  font-weight: 600;
+  margin: 0 0 1.5rem;
+}
+
+.crumb,
+.meta {
+  font-size: 0.85rem;
+  color: var(--muted);
+  margin: 0 0 2rem;
+}
+
+.crumb a {
+  color: var(--muted);
+}
+
+code {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.9em;
+  background: var(--code-bg);
+  padding: 0.1em 0.35em;
+  border-radius: 3px;
+}
+
+pre {
+  background: var(--code-bg);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  padding: 0.9rem 1rem;
+  margin: 0 0 1.25rem;
+  overflow-x: auto;
+}
+
+pre code {
+  background: none;
+  padding: 0;
+  font-size: 0.85rem;
+  line-height: 1.6;
+}
+
+blockquote {
+  margin: 0 0 1.25rem;
+  padding: 0.1rem 0 0.1rem 1.1rem;
+  border-left: 3px solid var(--rule);
+  color: var(--muted);
+}
+
+blockquote p:last-child {
+  margin-bottom: 0;
+}
+
+.note {
+  background: var(--note-bg);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  padding: 0.9rem 1.1rem;
+  font-size: 0.94rem;
+  color: var(--muted);
+}
+
+ul.plain {
+  list-style: none;
+  padding: 0;
+}
+
+ul.plain li {
+  margin-bottom: 0.4rem;
+}
+
+li {
+  margin-bottom: 0.35rem;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.94rem;
+}
+
+th,
+td {
+  text-align: left;
+  padding: 0.45rem 0.7rem 0.45rem 0;
+  border-bottom: 1px solid var(--rule);
+  vertical-align: top;
+}
+
+th {
+  font-weight: 600;
+  color: var(--muted);
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.table-scroll {
+  overflow-x: auto;
+  margin-bottom: 1.25rem;
+}
+
+nav.pages {
+  margin-top: 3.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--rule);
+  font-size: 0.94rem;
+}
+
+nav.pages a {
+  margin-right: 1.25rem;
+  white-space: nowrap;
+}
+
+footer {
+  margin-top: 2.5rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}

@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Why another container security tool — cruthu</title>
+<meta name="description" content="The baseline is a signed build artifact, not a learned statistical model — and the failure mode cruthu treats as most serious is drift that goes unreported.">
+<link rel="stylesheet" href="/assets/style.css">
+</head>
+<body>
+<main>
+
+<p class="crumb"><a href="/">cruthu</a> / why</p>
+
+<h1>Why another container security tool</h1>
+
+<p class="lede">Because the baseline here is a signed build artifact, not a learned statistical
+model.</p>
+
+<p>"A binary executed that isn't in the SBOM" is a fact, not an anomaly score. That difference decides
+almost everything else about the tool: no training period, no false-positive tuning treadmill, and an
+explanation you can hand to an auditor without a footnote about model confidence.</p>
+
+<p>Existing in-use analysis lives locked inside vendor platforms. <code>cruthu</code> is the
+vendor-neutral, SBOM-standard-native version, and its output is a portable signed artifact rather than
+a seat in someone's console. The evidence is the product, not the dashboard.</p>
+
+<h2>The failure mode that actually matters</h2>
+
+<p>Most security review asks one question: can this be exploited? A drift detector has a second failure
+mode, and for this product it is the worse one — <strong>drift that goes unreported.</strong> A tool
+that misses the cryptominer is worse than no tool at all, because it converts an unknown into a false
+assurance. Someone reads the green check and stops looking.</p>
+
+<p>So the project's house rules put a standing question in front of every change to the reconciler, the
+index, the path-matching logic, or the event adapters:</p>
+
+<blockquote>
+<p>Construct an event that represents real drift but that this code would classify as clean.</p>
+</blockquote>
+
+<p>If you cannot construct one, say why not. If you can, that is a bug in the change, not a corner case.
+A false negative that hides drift is treated as more serious than a crash.</p>
+
+<h3>What that buys you, concretely</h3>
+
+<ul>
+  <li><strong>Error paths fail closed.</strong> A parse failure, an unreadable index, or a truncated
+  event stream exits <code>2</code>, never <code>0</code>. A pipeline can never read "the tool broke"
+  as "the image is clean."</li>
+  <li><strong>Path normalization is treated as detection logic, not string formatting.</strong> Any
+  change to how paths are compared can silently create an evasion, so it gets the question above.
+  Directory-symlink aliasing — <code>/usr/bin</code> against <code>/bin</code>, and the rest of the
+  usrmerge layout — is resolved in the index rather than papered over at compare time.</li>
+  <li><strong>Every suppression is a hole in the detector.</strong> No allowlist or "known noise"
+  default is widened without a test proving the specific noise is suppressed and a comment justifying
+  it.</li>
+  <li><strong>Untrusted input is bounded.</strong> SBOMs from registries, event streams off sockets,
+  and filesystems from arbitrary images are hostile by default: no allocation sized from a file, no
+  panic on malformed input, and confinement checks on every path derived from input. Image filesystems
+  are opened with <code>os.OpenRoot</code>, not <code>os.DirFS</code>, because
+  the latter follows a symlink out of its own tree exactly as <code>os.Open</code> would — a
+  distinction recorded in the
+  <a href="https://github.com/cruthu/cruthu/tree/main/docs/decisions">decision log</a>.</li>
+  <li><strong>Every parser of untrusted input has a fuzz target</strong>, run short in CI and long
+  nightly.</li>
+</ul>
+
+<h2>What it will not catch</h2>
+
+<p>Worth stating plainly, because a breadth claim you can disprove in an afternoon costs more trust
+than a narrow claim you can verify:</p>
+
+<ul>
+  <li><strong>Interpreted application code.</strong> Python and Node source is not "packages." v1 scopes
+  its claims to binaries and shared objects. Application-code integrity is dm-verity and IMA territory,
+  and it is not a v1 promise.</li>
+  <li><strong>Whatever your workload never exercised.</strong> In-use and debloat output is only as good
+  as the code paths that actually ran. The debloat report says so, prominently, every time.</li>
+  <li><strong>File-level gaps in the SBOM itself.</strong> Most SBOMs lack file lists, which is why
+  <code>cruthu</code> owns the index step rather than trusting the SBOM to be the authority on
+  paths.</li>
+</ul>
+
+<h2>How the code gets to that bar</h2>
+
+<p><code>cruthu</code> is developed with AI assistance under a documented, review-first process: every
+change is specified before it is written, reviewed by a human before merge, passed through automated
+security tooling and continuous fuzzing of all untrusted-input parsers, and given an independent
+adversarial review pass by a session that did not write it. The governing rule is that no line merges
+which a human maintainer cannot explain and defend — what it does, why it is correct, and why it is
+safe against hostile input.</p>
+
+<p>We hold a security tool to a higher bar and document how we meet it, rather than hoping nobody asks.
+The rules themselves are in the repository, in
+<a href="https://github.com/cruthu/cruthu/blob/main/CLAUDE.md">CLAUDE.md</a> and
+<a href="https://github.com/cruthu/cruthu/blob/main/CONTRIBUTING.md">CONTRIBUTING.md</a>.</p>
+
+<h2>Found a false negative?</h2>
+
+<p>If you can construct an event stream representing real drift — an executed binary or a loaded
+library absent from the SBOM — that <code>cruthu</code> reports as clean, that is a security-relevant
+finding and we want it through the private channel in
+<a href="https://github.com/cruthu/cruthu/blob/main/SECURITY.md">SECURITY.md</a>, not a public
+issue.</p>
+
+<nav class="pages">
+  <a href="/">Overview</a>
+  <a href="/open-core/">Open core</a>
+  <a href="https://github.com/cruthu/cruthu">Source</a>
+  <a href="https://github.com/cruthu/cruthu/tree/main/docs/decisions">Decision log</a>
+</nav>
+
+</main>
+</body>
+</html>

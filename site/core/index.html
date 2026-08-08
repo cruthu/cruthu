@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>cruthu.dev/core — Go module path</title>
+
+<!--
+  This is the module resolution page for cruthu.dev/core.
+
+  `go` (or proxy.golang.org on its behalf) fetches this URL with ?go-get=1 and
+  reads the go-import tag below to learn which repository backs the module path.
+  Whoever controls this tag controls where every `go get cruthu.dev/core` fetches
+  code from, so treat it as release infrastructure, not as page content:
+
+    - The first field must match the `module` line in go.mod exactly.
+      site/vanity_test.go asserts that on every `make test`.
+    - The tag must be served with HTTP 200. A redirect to github.com would make
+      `go` infer a github.com/... module path and fail with a path mismatch.
+
+  See docs/decisions/0004-module-path-and-domain.md.
+-->
+<meta name="go-import" content="cruthu.dev/core git https://github.com/cruthu/cruthu">
+<meta name="go-source" content="cruthu.dev/core https://github.com/cruthu/cruthu https://github.com/cruthu/cruthu/tree/main{/dir} https://github.com/cruthu/cruthu/blob/main{/dir}/{file}#L{line}">
+
+<link rel="stylesheet" href="/assets/style.css">
+</head>
+<body>
+<main>
+
+<p class="crumb"><a href="/">cruthu</a> / core</p>
+
+<h1><code>cruthu.dev/core</code></h1>
+
+<p class="lede">The Go module path for the <code>cruthu</code> open-source core. If you landed here in
+a browser, you were probably looking for the source or the docs.</p>
+
+<ul class="plain">
+  <li><a href="https://pkg.go.dev/cruthu.dev/core">Package documentation on pkg.go.dev</a></li>
+  <li><a href="https://github.com/cruthu/cruthu">Source on GitHub</a></li>
+  <li><a href="/">What cruthu is</a></li>
+</ul>
+
+<h2>Installing</h2>
+
+<p>From the first tagged release onward:</p>
+
+<pre><code>go install cruthu.dev/core/cmd/cruthu@latest</code></pre>
+
+<p>The module path is served from this domain rather than from the code host, so imports stay stable
+if the repository ever moves. There is no <code>/v1</code> suffix: Go's semantic import versioning
+omits the suffix for v0 and v1, and a <code>/v2</code> would be added only at a breaking major
+version.</p>
+
+<p class="note">Nothing importable lives outside <code>internal/</code> yet, so this path resolves as
+an install target rather than as a library. Public packages arrive when the output schemas stabilize.
+Until then, see the <a href="https://github.com/cruthu/cruthu/blob/main/README.md">status note in the
+README</a>.</p>
+
+</main>
+</body>
+</html>

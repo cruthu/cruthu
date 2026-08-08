@@ -1,0 +1,29 @@
+# Response headers for cruthu.dev (Cloudflare Pages `_headers` format).
+#
+# This origin answers Go module resolution for cruthu.dev/core, so it is held to
+# a tighter standard than a marketing site would otherwise need: it loads no
+# third-party asset, executes no script, and accepts no input. That is what makes
+# a `default-src 'none'` policy achievable rather than aspirational. Before
+# adding an embed, a font, or an analytics tag, read
+# docs/decisions/0004-module-path-and-domain.md — the cost is not the header edit.
+
+/*
+  Content-Security-Policy: default-src 'none'; style-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: no-referrer
+  X-Frame-Options: DENY
+  Cross-Origin-Opener-Policy: same-origin
+  Permissions-Policy: geolocation=(), microphone=(), camera=()
+  # includeSubDomains is taken deliberately and early: it forces HTTPS on
+  # app.cruthu.dev and api.cruthu.dev before they exist, which is the right
+  # default for an authenticated control plane. Every subdomain must therefore
+  # serve valid TLS, which Cloudflare does by default. `preload` is deliberately
+  # absent until there is a product behind those names, since that submission is
+  # hard to walk back.
+  Strict-Transport-Security: max-age=31536000; includeSubDomains
+
+# Module resolution is release infrastructure. Keep the cache short enough that a
+# bad tag can be corrected in minutes rather than sitting in edge caches for a
+# day, and never let a stale copy outlive a fix.
+/core/*
+  Cache-Control: public, max-age=300

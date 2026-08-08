@@ -14,3 +14,4 @@ Entries are numbered, immutable once merged, and superseded rather than edited. 
 | # | Decision |
 |---|---|
 | [0001](0001-index-is-the-spine.md) | The file-to-package index, not the SBOM, is the authority on paths |
+| [0004](0004-module-path-and-domain.md) | The module path is a vanity path, and the apex that serves it stays inert |

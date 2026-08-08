@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Open core — cruthu</title>
+<meta name="description" content="Where the line sits between the Apache-2.0 core and a future hosted control plane, and why it is drawn there.">
+<link rel="stylesheet" href="/assets/style.css">
+</head>
+<body>
+<main>
+
+<p class="crumb"><a href="/">cruthu</a> / open core</p>
+
+<h1>Open core, and where the line sits</h1>
+
+<p class="lede">Anything a single team needs on a single cluster is Apache-2.0 and stays that way.
+Anything about many teams, many clusters, auditors, and retention is where a paid product would
+live.</p>
+
+<p>That is the whole rule. It is stated here before there is anything to sell, because a line drawn
+after a project has users is a line drawn against them.</p>
+
+<h2>Free, forever, Apache-2.0</h2>
+
+<p>The entire tool described on this site — reconciliation, drift detection, in-use CVE
+prioritization, debloat recommendations, signing and verifying runtime attestations, the Kubernetes
+deployment, and the output schemas — is the open-source core. Concretely, that means:</p>
+
+<ul>
+  <li>You can run <code>cruthu</code> against your workloads, gate your CI on its exit code, and
+  produce and verify signed runtime attestations without paying anyone or registering anything.</li>
+  <li>The attestation predicate is published as a versioned, standalone spec, so the evidence
+  <code>cruthu</code> emits is verifiable with <code>cosign</code> alone. If this project disappeared
+  tomorrow, artifacts already signed would remain checkable.</li>
+  <li>There is no license key, no phone-home, no telemetry, and no feature that degrades unless you
+  buy something.</li>
+</ul>
+
+<h2>What a paid layer would be</h2>
+
+<p><strong>None of this exists yet.</strong> It sits at 2.0 in the
+<a href="https://github.com/cruthu/cruthu/blob/main/ROADMAP.md">roadmap</a>, behind a 0.x series that
+is still being written, and it will be shaped by what real usage turns out to justify. Today it is a
+direction, not a product:</p>
+
+<ul>
+  <li><strong>Fleet view.</strong> One pane across clusters — conformance status per workload, drift
+  timeline, attestation coverage.</li>
+  <li><strong>Policy engine.</strong> Org-wide rules ("prod namespaces require a conformant attestation
+  less than seven days old"), distributed to admission controllers.</li>
+  <li><strong>Compliance packs.</strong> Mapped evidence bundles for EO 14028, the EU CRA, SOC 2
+  change-management evidence, FedRAMP continuous-monitoring inputs.</li>
+  <li><strong>Attestation ledger.</strong> Retained, searchable history of signed runtime attestations —
+  the compliance artifact as a service.</li>
+  <li><strong>Hosting and a managed backend</strong> for the above, with a single-tenant deployment
+  option, because the buyers who care most about this are definitionally the ones least willing to ship
+  their runtime inventory to a multi-tenant service.</li>
+</ul>
+
+<p>The pattern in that list is deliberate. Every item is about coordination across boundaries — teams,
+clusters, time, auditors. None of them is a capability withheld from the tool itself.</p>
+
+<h2>Why draw it there</h2>
+
+<p>Because it is a line that stays legible under pressure. A vendor who reserves "the good detections"
+for the paid tier has an incentive to make the free tier miss things, and in a drift detector,
+<a href="/why/">missing things is the primary failure mode</a>. Keeping the detector whole and charging
+for fleet-scale coordination puts the incentive in the right place: the open core has to be genuinely
+good, because it is what everyone evaluates and most people will keep using.</p>
+
+<p>It is also the honest read of where the work is. Retention, multi-tenancy, and auditor-shaped
+evidence packs are real, ongoing operational cost. Detecting that a binary ran which nobody
+declared is not.</p>
+
+<h2>Practicalities</h2>
+
+<p>The core is Apache-2.0, which is CNCF-compatible and imposes nothing on you. The license for a
+future control plane — permissive-adjacent BSL versus plain proprietary — is an open question to be
+settled at 1.0, and deliberately not before; license anxiety is a poor reason to slow down a tool that
+does not have its first release yet.</p>
+
+<p>This site and the module path are served from <code>cruthu.dev</code>. If a hosted product happens,
+it gets its own subdomains rather than this one, so the origin that answers
+<a href="/core/">Go module resolution</a> never grows an authenticated application or a session
+cookie.</p>
+
+<h2>Interested in the paid layer?</h2>
+
+<p>There is no waitlist, on purpose. The control plane is far enough out that an address collected today
+would go stale before there was anything to send to it, and a project whose pitch is careful handling of
+other people's data should not start by accumulating email it cannot use.</p>
+
+<p>If any of it sounds like something you would actually deploy — especially if your interest is the
+compliance evidence rather than the dashboard — open an issue on
+<a href="https://github.com/cruthu/cruthu/issues">GitHub</a>. Being told which parts matter now is
+considerably more useful than a list of addresses.</p>
+
+<nav class="pages">
+  <a href="/">Overview</a>
+  <a href="/why/">Why another container security tool</a>
+  <a href="https://github.com/cruthu/cruthu/blob/main/ROADMAP.md">Roadmap</a>
+  <a href="https://github.com/cruthu/cruthu/blob/main/LICENSE">License</a>
+</nav>
+
+</main>
+</body>
+</html>
