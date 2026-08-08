@@ -63,7 +63,7 @@ The house rules live in [CLAUDE.md](CLAUDE.md), mirrored as `AGENTS.md` (a symli
 
 Every change passes through several gates:
 
-1. **Automated checks** in CI: vet, linters including gosec, staticcheck, govulncheck, semgrep, secret scanning, the race detector, and a short fuzz pass on the parsers.
+1. **Automated checks** in CI: vet, linters including gosec, staticcheck, govulncheck, the race detector, a dependency review, and a short fuzz pass on the parsers.
 2. **An adversarial review pass** framed around hostile input and, for reconciler changes, the question "could this be made to miss real drift?" A false negative that hides drift is treated as more serious than a crash.
 3. **Human maintainer review** focused on architecture, trust boundaries, and whether the change can be explained out loud.
 

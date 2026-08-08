@@ -43,7 +43,6 @@ Everything in [`.github/workflows/ci.yml`](../.github/workflows/ci.yml), mirrore
 
 - `go vet`, `golangci-lint` (including `gosec`, `errcheck`, `bodyclose`, `noctx`, `nilerr`, `errorlint`), `staticcheck`
 - `govulncheck` — known-vulnerability reachability in our own dependencies
-- `gitleaks` secret scanning across history
 - the race detector on the full suite
 - **fuzzing as a first-class citizen:** native Go fuzz targets on every parser entry point — CycloneDX, SPDX, Tetragon JSON, Tracee JSON, the config file. A short pass (30s per target) runs on every pull request; [`fuzz-nightly.yml`](../.github/workflows/fuzz-nightly.yml) runs hours per target overnight with a cached corpus. Parsers of untrusted input are exactly where fuzzing pays.
 - dependency review — fails a pull request on new dependencies with known vulnerabilities or unwanted licenses, and makes every addition visible in review
