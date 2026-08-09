@@ -10,6 +10,7 @@ package index
 
 import (
 	"path"
+	"slices"
 	"strings"
 	"time"
 )
@@ -105,7 +106,16 @@ type lookup struct {
 // When two packages declare the same path, the first in Packages order wins.
 // That ambiguity affects which package is reported as the owner; it never
 // affects whether a path is owned at all, which is what drift turns on.
+//
+// A nil index yields a Lookup that owns nothing. Returning an empty result
+// rather than panicking keeps the failure in the direction that over-reports
+// drift, and means a caller that mishandles a load error still cannot crash the
+// process on the query path.
 func NewLookup(idx *Index) Lookup {
+	if idx == nil {
+		return &lookup{aliases: NewAliases(nil), owners: map[string]int{}}
+	}
+
 	aliases := NewAliases(idx.Aliases)
 
 	// Not pre-sized: the file count comes from the input file, and sizing an
@@ -115,6 +125,15 @@ func NewLookup(idx *Index) Lookup {
 	for i := range idx.Packages {
 		for _, f := range idx.Packages[i].Files {
 			normalized := aliases.Normalize(f)
+
+			// An owned "" would be matched by any observed path that
+			// normalizes away to nothing, so it is never a key. validate
+			// rejects empty declared paths too; this does not depend on that,
+			// because NewLookup is reachable from an index built in memory and
+			// never passed through validate.
+			if normalized == "" {
+				continue
+			}
 			if _, seen := owners[normalized]; seen {
 				continue
 			}
@@ -126,11 +145,28 @@ func NewLookup(idx *Index) Lookup {
 }
 
 func (l *lookup) Owner(p string) (Package, bool) {
-	i, ok := l.owners[l.aliases.Normalize(p)]
+	normalized := l.aliases.Normalize(p)
+
+	// An unnormalizable path is not owned by anything. Without this, a
+	// truncated event whose path field is empty looks up the "" key, and
+	// "the sensor told us nothing" reads as "the sensor told us it was fine".
+	if normalized == "" {
+		return Package{}, false
+	}
+
+	i, ok := l.owners[normalized]
 	if !ok {
 		return Package{}, false
 	}
-	return l.pkgs[i], true
+
+	out := l.pkgs[i]
+
+	// Clipped so that a caller appending to the returned Files writes into its
+	// own array instead of over the next package's paths in the index's
+	// storage. Callers still must not assign through the slice; Files is the
+	// index's data, and the Lookup contract is read-only.
+	out.Files = slices.Clip(out.Files)
+	return out, true
 }
 
 // cleanAbs normalizes p to a cleaned, absolute, slash-separated path so that

@@ -181,15 +181,33 @@ func FuzzLookupOwner(f *testing.F) {
 		// A declared path must always be found by its own spelling. This is the
 		// floor: if it fails, the index cannot recognize the files it just
 		// recorded, and everything in the image reports as drift.
-		if _, ok := lookup.Owner(declared); !ok {
-			t.Fatalf("Owner(%q) found no owner for a path the index declares", declared)
+		//
+		// The empty path is excluded because it is not a path, and this
+		// exclusion is a deliberate contract change rather than a test bent to
+		// fit the code. Declaring "" used to make owners[""] a live key, so an
+		// event whose path field had been truncated away matched it and
+		// reported clean — "the sensor told us nothing" reading as "the sensor
+		// told us it was fine". That is a false negative, and the assertion
+		// below now pins the opposite.
+		if aliases.Normalize(declared) != "" {
+			if _, ok := lookup.Owner(declared); !ok {
+				t.Fatalf("Owner(%q) found no owner for a path the index declares", declared)
+			}
+		}
+
+		// An unnormalizable path is owned by nothing, whatever the index
+		// declares and whatever the alias set does.
+		if pkg, ok := lookup.Owner(""); ok {
+			t.Fatalf(`Owner("") returned owner %q`, pkg.ID)
 		}
 
 		// Any observed path that normalizes to the declared path must resolve
 		// to it. Normalizing only one side is the bug this design exists to
 		// prevent, and it fails in the direction that hides nothing — it makes
 		// legitimate files look like drift.
-		if aliases.Normalize(observed) == aliases.Normalize(declared) {
+		// Empty excluded for the same reason as above: two paths that both
+		// normalize to nothing have not met, they have both disappeared.
+		if n := aliases.Normalize(observed); n != "" && n == aliases.Normalize(declared) {
 			if _, ok := lookup.Owner(observed); !ok {
 				t.Fatalf("Owner(%q) found no owner, but it normalizes to declared %q", observed, declared)
 			}
