@@ -48,6 +48,54 @@ func TestExitCodeFor(t *testing.T) {
 			err:  errors.New("drift detected"),
 			want: ExitError,
 		},
+		{
+			// The case this function's doc comment always described and the
+			// code did not implement. A run that found drift and then broke
+			// must not report as a completed run that found drift: the
+			// findings it never got to are indistinguishable from findings
+			// that do not exist, so ExitDrift would tell a pipeline the image
+			// had been fully checked when it had not.
+			name: "drift joined with a real failure is a failure",
+			err:  errors.Join(drift, errors.New("truncated event stream")),
+			want: ExitError,
+		},
+		{
+			name: "real failure joined ahead of drift is a failure",
+			err:  errors.Join(errors.New("unreadable index"), drift),
+			want: ExitError,
+		},
+		{
+			// Wrapping the join must not launder it either.
+			name: "wrapped join of drift and failure is a failure",
+			err:  fmt.Errorf("check: %w", errors.Join(drift, errors.New("boom"))),
+			want: ExitError,
+		},
+		{
+			// Drift found by two independent checks is still only drift.
+			name: "join of drift errors is a finding",
+			err:  errors.Join(drift, &DriftError{Summary: "2 high findings"}),
+			want: ExitDrift,
+		},
+		{
+			// Nothing in the tree is a finding, so there is nothing to report
+			// as one. errors.Join() itself returns nil, which is genuinely
+			// clean, so reaching this branch takes a hand-built joiner.
+			name: "error joining nothing is a failure",
+			err:  emptyJoin{},
+			want: ExitError,
+		},
+		{
+			// A chain longer than the walk will follow is unrecognizable, and
+			// an unrecognizable error is a failure rather than a finding.
+			name: "drift buried deeper than the walk goes is a failure",
+			err:  wrapTimes(drift, maxErrorDepth+2),
+			want: ExitError,
+		},
+		{
+			name: "drift just inside the depth limit is still a finding",
+			err:  wrapTimes(drift, maxErrorDepth-1),
+			want: ExitDrift,
+		},
 	}
 
 	for _, tt := range tests {
@@ -59,6 +107,21 @@ func TestExitCodeFor(t *testing.T) {
 			}
 		})
 	}
+}
+
+// emptyJoin is an error that reports a join of nothing, which errors.Join
+// itself will not produce because it returns nil instead.
+type emptyJoin struct{}
+
+func (emptyJoin) Error() string   { return "joins nothing" }
+func (emptyJoin) Unwrap() []error { return nil }
+
+// wrapTimes nests err inside n layers of wrapping.
+func wrapTimes(err error, n int) error {
+	for range n {
+		err = fmt.Errorf("layer: %w", err)
+	}
+	return err
 }
 
 func TestExitCodesAreStable(t *testing.T) {
