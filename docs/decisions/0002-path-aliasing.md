@@ -80,3 +80,45 @@ That reasoning is wrong, and the error is worth recording because it is the kind
 Not from this change. It only removes matches: unrooted paths stop resolving to anything, and a non-converging alias set stops producing a comparison at all. Removing a match can turn a legitimate file into a reported finding, never the reverse. The new failure mode is over-reporting — an adapter that emits relative paths makes every such event unowned and noisy — which is visible on day one rather than silent forever.
 
 The blind spot this creates is real and belongs to the adapters, named above: an event with no cwd is dropped, and a dropped event is not checked. That is a gap in coverage rather than a path that resolves to the wrong answer, and it is why the drop must be counted and reported.
+
+---
+
+## Amendment — alias discovery is scoped to the root
+
+**Date:** 2026-08-08
+**Changes:** which symlinks become aliases, and what an unreadable root means.
+
+### 95% of the table was noise, and noise in this table is not harmless
+
+Measured on the images this has to work on:
+
+| Image | Total symlinks | Directory symlinks | Merged-`/usr` aliases |
+|---|---|---|---|
+| `debian:bookworm` | 643 | 26 | 4 (`/bin`, `/lib`, `/lib64`, `/sbin`) |
+| `python:3.12-bookworm` | 2,646 | 88 | 4 |
+
+The 84 extra entries in the larger image are `/usr/share/doc/libssl3 -> libssl-dev` (37), `/usr/share/zoneinfo/posix/America -> ../America` (16), and `/usr/share/bug/*` (12). None is a path alias in the merged-`/usr` sense this ADR exists for.
+
+They are not merely useless. Every entry in this table is a global path rewrite applied to every observed path, which makes it a drift-suppression primitive; the amendment above records what one well-chosen entry can hide. A mechanism that mints one of those for any symlink dropped anywhere in an image is too generous by construction. Discovery now records a directory symlink only when it sits directly in the root, which captures all four real aliases in both images and drops all 84.
+
+It also cuts `Normalize`'s per-path linear scan by roughly 20×, and that scan runs once per declared file at load and once per event at check time.
+
+### The lexical/physical resolution differential
+
+A relative target was resolved with `path.Join(path.Dir(name), target)`, which collapses `..` lexically. The kernel resolves it physically. Where a component of the link's own directory is itself a symlink, the two disagree: with `/a -> /usr` and `/a/b -> ../lib`, this code recorded `/a/b -> /lib` while the kernel resolves `/a/b` to `/usr/lib`. `fs.Stat` confirmed only that the lexical answer was a real directory, not that it was the answer the kernel would give.
+
+That is a path-resolution differential in detection logic, which is the class this project treats most seriously. Scoping to the root closes it outright rather than papering over it: at the root `path.Dir(name)` is always `"."`, so there are no intermediate components to disagree about. This is the second reason for the scoping rule and would justify it alone.
+
+### An unreadable root is fatal
+
+The original consequence note said an unreadable subtree is skipped rather than fatal, and that this is safe because a missing alias can only over-report. That holds for a subtree. It did not hold for the root, and the code did not distinguish them: `fs.WalkDir` reports a failure to stat the root by calling back with a nil `DirEntry`, the `d != nil && d.IsDir()` guard fell through to `return nil`, and the scan returned success with an empty alias set.
+
+An empty alias set is indistinguishable from an image that genuinely has no directory symlinks — the exact confusion this ADR's `fs.ReadLinkFS` requirement exists to prevent, reached by another route. On a merged-`/usr` image it means every binary reports as unowned, and the first thing a user does with that much noise is suppress it. Opening the root now fails the scan.
+
+### The false-negative question, for this amendment
+
+*Construct an event that represents real drift but that this code would classify as clean.*
+
+Not from the scoping change: it only removes aliases, and removing an alias removes a rewrite, so a path that used to normalize onto an owned path now fails to match and is reported. The change moves entries out of a suppression table, which is the safe direction by definition.
+
+The one that remains is the one already named at the top of this ADR — an attacker who controls the image build ships `/opt` as a symlink into `/usr/bin`. Scoping does not fix that, because a root-level symlink is exactly what such an attacker would create. What bounds it now is that the deserialized table is validated against the canonical merged-`/usr` shape, so an index carrying `/opt -> /usr/bin` is refused at load whatever the filesystem said. Discovery being generous and validation being strict is a disagreement worth naming: `BuildAliases` can still record a root-level alias that `LoadVerified` will later refuse, and the index writer is where that should be caught.

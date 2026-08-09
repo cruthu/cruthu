@@ -1,6 +1,8 @@
 package index
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -60,7 +62,7 @@ func TestBuildAliasesFindsDirectorySymlinks(t *testing.T) {
 		}
 	})
 
-	aliases, err := BuildAliases(fsys)
+	aliases, err := BuildAliases(t.Context(), fsys)
 	if err != nil {
 		t.Fatalf("BuildAliases: %v", err)
 	}
@@ -129,7 +131,7 @@ func TestBuildAliasesRejectsNonDirectoryAndEscapingLinks(t *testing.T) {
 		}
 	})
 
-	aliases, err := BuildAliases(fsys)
+	aliases, err := BuildAliases(t.Context(), fsys)
 	if err != nil {
 		t.Fatalf("BuildAliases: %v", err)
 	}
@@ -152,7 +154,7 @@ func TestBuildAliasesRequiresReadLinkFS(t *testing.T) {
 	// Alias discovery is not optional: a filesystem it cannot inspect would
 	// yield an empty alias set, which looks identical to an image that has no
 	// directory symlinks. Erroring keeps those two cases distinguishable.
-	if _, err := BuildAliases(plainFS{os.DirFS(t.TempDir())}); err == nil {
+	if _, err := BuildAliases(t.Context(), plainFS{os.DirFS(t.TempDir())}); err == nil {
 		t.Fatal("BuildAliases accepted a filesystem that cannot read symlinks")
 	}
 }
@@ -398,6 +400,227 @@ func FuzzNormalize(f *testing.F) {
 		// place, and a converging set can always place a rooted path.
 		if strings.HasPrefix(in, "/") && once == "" {
 			t.Fatalf("Normalize(%q) returned un-normalizable for a rooted path", in)
+		}
+	})
+}
+
+func TestBuildAliasesIgnoresSymlinksBelowTheRoot(t *testing.T) {
+	t.Parallel()
+
+	// The shape that produced 84 of python:3.12-bookworm's 88 directory
+	// symlinks: documentation and timezone links deep in /usr/share, each of
+	// which the recursive scan turned into a global path rewrite.
+	root := t.TempDir()
+	for _, dir := range []string{"usr/bin", "usr/share/doc/libssl-dev", "usr/share/zoneinfo/America"} {
+		if err := os.MkdirAll(filepath.Join(root, dir), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+	}
+	nested := map[string]string{
+		"usr/share/doc/libssl3":    "libssl-dev",
+		"usr/share/zoneinfo/posix": "America",
+		"usr/bin/X11":              ".",
+	}
+	for name, target := range nested {
+		if err := os.Symlink(target, filepath.Join(root, name)); err != nil {
+			t.Fatalf("symlink %s: %v", name, err)
+		}
+	}
+	// One real merged-/usr alias at the root, to prove the scan still works.
+	if err := os.Symlink("usr/bin", filepath.Join(root, "bin")); err != nil {
+		t.Fatalf("symlink bin: %v", err)
+	}
+
+	fsys, closeFn, err := OpenRootfs(root)
+	if err != nil {
+		t.Fatalf("OpenRootfs: %v", err)
+	}
+	t.Cleanup(func() {
+		if closeErr := closeFn(); closeErr != nil {
+			t.Errorf("close rootfs: %v", closeErr)
+		}
+	})
+
+	aliases, err := BuildAliases(t.Context(), fsys)
+	if err != nil {
+		t.Fatalf("BuildAliases: %v", err)
+	}
+
+	if len(aliases) != 1 || aliases[0].From != "/bin" || aliases[0].To != "/usr/bin" {
+		t.Fatalf("recorded %v, want only the /bin -> /usr/bin entry", aliases)
+	}
+}
+
+func TestBuildAliasesFailsOnAnUnreadableRoot(t *testing.T) {
+	t.Parallel()
+
+	// An empty alias set is indistinguishable from an image with no directory
+	// symlinks, so a root that cannot be read must be an error. The previous
+	// implementation called back with a nil DirEntry here, fell through its
+	// `d != nil && d.IsDir()` guard, and returned success with no aliases —
+	// exactly the confusion TestBuildAliasesRequiresReadLinkFS exists to
+	// prevent, reached by a different route.
+	if _, err := BuildAliases(t.Context(), unreadableRootFS{}); err == nil {
+		t.Fatal("BuildAliases returned no error for an unreadable root")
+	}
+}
+
+// unreadableRootFS refuses to open anything, and can read links, so it fails
+// only at the point this test is about.
+type unreadableRootFS struct{}
+
+func (unreadableRootFS) Open(string) (fs.File, error) {
+	return nil, fs.ErrPermission
+}
+
+func (unreadableRootFS) ReadLink(string) (string, error) {
+	return "", fs.ErrPermission
+}
+
+func (unreadableRootFS) Lstat(string) (fs.FileInfo, error) {
+	return nil, fs.ErrPermission
+}
+
+func TestBuildAliasesHonorsContextCancellation(t *testing.T) {
+	t.Parallel()
+
+	fsys, closeFn, err := OpenRootfs(mergedUsrRootfs(t))
+	if err != nil {
+		t.Fatalf("OpenRootfs: %v", err)
+	}
+	t.Cleanup(func() {
+		if closeErr := closeFn(); closeErr != nil {
+			t.Errorf("close rootfs: %v", closeErr)
+		}
+	})
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	// A canceled scan must not report the aliases it happened to collect
+	// before stopping: a partial table is a table missing rewrites, and every
+	// missing rewrite is a legitimate file reported as drift.
+	if _, err := BuildAliases(ctx, fsys); !errors.Is(err, context.Canceled) {
+		t.Fatalf("BuildAliases error = %v, want context.Canceled", err)
+	}
+}
+
+func TestBuildAliasesRejectsTooManyAliases(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, "target"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	for i := range maxAliases + 1 {
+		if err := os.Symlink("target", filepath.Join(root, fmt.Sprintf("link%04d", i))); err != nil {
+			t.Fatalf("symlink %d: %v", i, err)
+		}
+	}
+
+	fsys, closeFn, err := OpenRootfs(root)
+	if err != nil {
+		t.Fatalf("OpenRootfs: %v", err)
+	}
+	t.Cleanup(func() {
+		if closeErr := closeFn(); closeErr != nil {
+			t.Errorf("close rootfs: %v", closeErr)
+		}
+	})
+
+	if _, err := BuildAliases(t.Context(), fsys); !errors.Is(err, errTooManyAliases) {
+		t.Fatalf("BuildAliases error = %v, want errTooManyAliases", err)
+	}
+}
+
+func TestBuildAliasesRejectsTooManyEntries(t *testing.T) {
+	t.Parallel()
+
+	// maxWalkEntries is five million, which no test should create on disk, so
+	// the root is a synthetic directory that reports more entries than the cap
+	// without allocating them.
+	if _, err := BuildAliases(t.Context(), endlessDirFS{}); !errors.Is(err, errTooManyEntries) {
+		t.Fatalf("BuildAliases error = %v, want errTooManyEntries", err)
+	}
+}
+
+// endlessDirFS is a root directory that never runs out of plain entries.
+type endlessDirFS struct{}
+
+func (endlessDirFS) Open(string) (fs.File, error) { return &endlessDir{}, nil }
+func (endlessDirFS) ReadLink(string) (string, error) {
+	return "", fs.ErrNotExist
+}
+
+func (endlessDirFS) Lstat(string) (fs.FileInfo, error) {
+	return nil, fs.ErrNotExist
+}
+
+type endlessDir struct{}
+
+func (*endlessDir) Stat() (fs.FileInfo, error) { return nil, fs.ErrInvalid }
+func (*endlessDir) Read([]byte) (int, error)   { return 0, fs.ErrInvalid }
+func (*endlessDir) Close() error               { return nil }
+
+func (*endlessDir) ReadDir(n int) ([]fs.DirEntry, error) {
+	if n <= 0 {
+		n = readDirChunk
+	}
+	out := make([]fs.DirEntry, 0, n)
+	for range n {
+		out = append(out, plainEntry{})
+	}
+	return out, nil
+}
+
+type plainEntry struct{}
+
+func (plainEntry) Name() string               { return "file" }
+func (plainEntry) IsDir() bool                { return false }
+func (plainEntry) Type() fs.FileMode          { return 0 }
+func (plainEntry) Info() (fs.FileInfo, error) { return nil, fs.ErrInvalid }
+
+// FuzzResolveLinkTarget exercises the symlink-target parser.
+//
+// A symlink target is attacker-controlled input parsed by hand-written path
+// logic, which is the exact combination the house rules require a fuzz target
+// for. The contract is that an accepted target names something inside the root:
+// never absolute, never escaping through "..", never the root itself. An
+// accepted target becomes an alias, and an alias rewrites every observed path,
+// so a target that escapes here is a rewrite pointing outside the image.
+func FuzzResolveLinkTarget(f *testing.F) {
+	f.Add("bin", "usr/bin")
+	f.Add("bin", "/usr/bin")
+	f.Add("lib64", "usr/lib64")
+	f.Add("a", "..")
+	f.Add("a", "../..")
+	f.Add("a", "/")
+	f.Add("a", "")
+	f.Add("a", ".")
+	f.Add("a", "../../../etc")
+	f.Add("a", "/../etc")
+	f.Add("a", "b/../../..")
+	f.Add("a", "//double")
+	f.Add("a", "x\x00y")
+
+	f.Fuzz(func(t *testing.T, name, target string) {
+		resolved, ok := resolveLinkTarget(name, target)
+		if !ok {
+			return
+		}
+
+		// fs.ValidPath is the contract an accepted result has to satisfy: it
+		// rejects "..", absolute paths, and empty elements. Restating it here
+		// means a future rewrite of the function is checked against the
+		// property rather than against its own implementation.
+		if !fs.ValidPath(resolved) {
+			t.Fatalf("resolveLinkTarget(%q, %q) = %q, which is not a valid path", name, target, resolved)
+		}
+		if resolved == "." {
+			t.Fatalf("resolveLinkTarget(%q, %q) resolved to the root", name, target)
+		}
+		if strings.HasPrefix(resolved, "/") {
+			t.Fatalf("resolveLinkTarget(%q, %q) = %q, which is absolute", name, target, resolved)
 		}
 	})
 }
