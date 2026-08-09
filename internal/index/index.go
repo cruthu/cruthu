@@ -111,12 +111,24 @@ type lookup struct {
 // rather than panicking keeps the failure in the direction that over-reports
 // drift, and means a caller that mishandles a load error still cannot crash the
 // process on the query path.
-func NewLookup(idx *Index) Lookup {
+//
+// It returns an error only when the alias set does not converge, which makes
+// the index unusable rather than merely empty: without a fixed point there is
+// no spelling for the two sides to meet in. LoadVerified rejects such a table
+// already, so this is reachable only from an Index built in memory.
+func NewLookup(idx *Index) (Lookup, error) {
 	if idx == nil {
-		return &lookup{aliases: NewAliases(nil), owners: map[string]int{}}
+		empty, err := NewAliases(nil)
+		if err != nil {
+			return nil, err
+		}
+		return &lookup{aliases: empty, owners: map[string]int{}}, nil
 	}
 
-	aliases := NewAliases(idx.Aliases)
+	aliases, err := NewAliases(idx.Aliases)
+	if err != nil {
+		return nil, err
+	}
 
 	// Not pre-sized: the file count comes from the input file, and sizing an
 	// allocation from untrusted input is exactly what the house rules forbid.
@@ -141,7 +153,7 @@ func NewLookup(idx *Index) Lookup {
 		}
 	}
 
-	return &lookup{aliases: aliases, pkgs: idx.Packages, owners: owners}
+	return &lookup{aliases: aliases, pkgs: idx.Packages, owners: owners}, nil
 }
 
 func (l *lookup) Owner(p string) (Package, bool) {
@@ -169,16 +181,27 @@ func (l *lookup) Owner(p string) (Package, bool) {
 	return out, true
 }
 
-// cleanAbs normalizes p to a cleaned, absolute, slash-separated path so that
-// "/usr//bin/../bin/sh", "usr/bin/sh", and "/usr/bin/sh" all compare equal.
-// Path comparison is detection logic, so every path entering the index or a
-// lookup passes through here rather than being compared as a raw string.
+// cleanAbs cleans p into the single spelling this package compares paths in,
+// and returns "" for any path it cannot place — which is every path that does
+// not start at the root.
+//
+// It used to prepend "/" to an unrooted path instead, making Owner("bin/sh")
+// and Owner("/bin/sh") the same query. That is a false negative with a short
+// recipe: an attacker in a writable working directory creates ./bin/sh and
+// execs it by relative path; the sensor reports the binary as "bin/sh"; this
+// function anchored it to /bin/sh; the alias table sent that to /usr/bin/sh;
+// and a planted binary resolved to dash and reported clean.
+//
+// The anchoring was never a decision about paths, it was a guess at a missing
+// working directory. Only the event adapter knows an event's cwd, so resolving
+// a relative observed path is the adapter's job — against the cwd the event
+// carries, dropping the event as unparseable when it carries none. Here, an
+// unrooted path is simply not a path this index can reason about, and "" carries
+// that to Owner, which owns nothing. The failure direction is over-reported
+// drift rather than an invented match.
 func cleanAbs(p string) string {
-	if p == "" {
-		return ""
-	}
 	if !strings.HasPrefix(p, "/") {
-		p = "/" + p
+		return ""
 	}
 	return path.Clean(p)
 }

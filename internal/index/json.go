@@ -287,6 +287,13 @@ func validate(idx *Index) error {
 			if path == "" {
 				return fmt.Errorf("index: package %q declares an empty path", p.ID)
 			}
+			// An unrooted declared path has no place in the filesystem the
+			// index describes, and cleanAbs no longer guesses one for it.
+			// Refused rather than dropped: an index quietly holding paths
+			// nothing can ever match reports its own contents as drift.
+			if !strings.HasPrefix(path, "/") {
+				return fmt.Errorf("index: package %q declares a relative path %q", p.ID, path)
+			}
 			if hasControlBytes(path) {
 				return fmt.Errorf("index: package %q declares a path with a control byte", p.ID)
 			}
@@ -355,6 +362,15 @@ func validateAliases(aliases []Alias) error {
 			return fmt.Errorf("index: alias %q is declared twice", a.From)
 		}
 		seen[a.From] = struct{}{}
+	}
+
+	// The canonical shape cannot express a chain — a To of "/usr/bin" is two
+	// components and no valid From is — so this cannot fire on a table that
+	// passed the loop above. It runs anyway, because the two rules are
+	// independent contracts and a later widening of the shape rule must not
+	// silently reopen non-convergence.
+	if _, err := NewAliases(aliases); err != nil {
+		return err
 	}
 
 	return nil

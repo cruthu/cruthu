@@ -177,7 +177,16 @@ type Aliases struct {
 // rewrite anything meaningfully — empty, rooted at "/", or self-referential —
 // are dropped rather than stored, so Normalize never has to defend against
 // them.
-func NewAliases(in []Alias) *Aliases {
+//
+// It returns an error when the surviving entries do not converge: a cycle, or a
+// chain longer than maxAliasHops. Refusing at load is the point. The bound used
+// to be applied per query inside Normalize, which silently clamped a long chain
+// rather than reporting it, and the two sides of a comparison enter a chain at
+// different points — a declared /a/x and an observed /c/x walking the same
+// nine-link chain stop at different links and stop being comparable. The old
+// comment claimed a bounded result "is still consistent between them". It is
+// not, and this is where that is fixed.
+func NewAliases(in []Alias) (*Aliases, error) {
 	// Grown rather than pre-sized: len(in) is an entry count taken straight
 	// from the index file, and sizing an allocation from an attacker-supplied
 	// number is what the house rules forbid. Real tables hold four entries.
@@ -194,15 +203,51 @@ func NewAliases(in []Alias) *Aliases {
 		return len(entries[i].From) > len(entries[j].From)
 	})
 
-	return &Aliases{entries: entries}
+	a := &Aliases{entries: entries}
+	if err := a.checkConverges(); err != nil {
+		return nil, err
+	}
+	return a, nil
 }
 
-// Normalize rewrites p through the alias set until no alias applies.
+// checkConverges reports whether every alias resolves to a fixed point within
+// maxAliasHops.
 //
-// The result is what both declared paths and observed paths are compared in.
-// Resolution is bounded by maxAliasHops so that a cyclic alias set terminates;
-// because the same function normalizes both sides, a bounded result is still
-// consistent between them.
+// Only the From of each entry needs walking. Any path the set rewrites at all
+// matches some entry's From — as the whole path or as a leading component run —
+// and it then follows that entry's chain, so the entries' own chains are the
+// only ones there are.
+func (a *Aliases) checkConverges() error {
+	for _, e := range a.entries {
+		p := e.From
+		converged := false
+
+		for range maxAliasHops {
+			next, rewritten := a.rewriteOnce(p)
+			if !rewritten {
+				converged = true
+				break
+			}
+			p = next
+		}
+
+		if !converged {
+			return fmt.Errorf("index: alias %q does not resolve within %d hops; the set has a cycle or too long a chain", e.From, maxAliasHops)
+		}
+	}
+	return nil
+}
+
+// Normalize rewrites p through the alias set until no alias applies, and
+// returns the spelling both declared and observed paths are compared in.
+//
+// It returns "" for a path it cannot resolve: one that is not rooted, and one
+// that is still being rewritten after maxAliasHops. NewAliases refuses a
+// non-converging set outright, so the second case needs a set built by hand to
+// reach — and "" is the fail-closed answer for it either way, because an
+// unresolvable path is owned by nothing and is reported as drift. The previous
+// behavior returned the half-rewritten path, which could collide with an
+// unrelated declared path and report a planted binary as legitimate.
 func (a *Aliases) Normalize(p string) string {
 	p = cleanAbs(p)
 	if a == nil || p == "" {
@@ -212,9 +257,15 @@ func (a *Aliases) Normalize(p string) string {
 	for range maxAliasHops {
 		next, rewritten := a.rewriteOnce(p)
 		if !rewritten {
-			break
+			return p
 		}
 		p = next
+	}
+
+	// Still rewriting after the bound: no fixed point, so no comparable
+	// spelling exists.
+	if _, rewritten := a.rewriteOnce(p); rewritten {
+		return ""
 	}
 	return p
 }
