@@ -1,8 +1,10 @@
 package index
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"path"
 	"sort"
@@ -19,8 +21,15 @@ const (
 	maxAliases = 1024
 
 	// maxWalkEntries bounds the scan itself, so a filesystem with an absurd
-	// number of entries cannot make indexing run unbounded.
+	// number of entries cannot make indexing run unbounded. Discovery reads
+	// only the root directory, so this bounds a single listing.
 	maxWalkEntries = 5_000_000
+
+	// readDirChunk is how many entries are pulled from the root at a time.
+	// Reading in chunks is what lets maxWalkEntries bound the allocation:
+	// checking the cap after fs.ReadDir has already materialized the whole
+	// listing bounds nothing, because the memory is spent by then.
+	readDirChunk = 1024
 
 	// maxAliasHops bounds chain resolution during normalization. Aliases can
 	// legitimately chain (/lib -> /usr/lib while /usr/lib -> /usr/lib64), but a
@@ -46,58 +55,103 @@ var (
 // refuses to follow absolute or escaping symlinks, and an absolute
 // `/bin -> /usr/bin` is still an alias worth recording even though following it
 // is not allowed.
-func BuildAliases(fsys fs.FS) ([]Alias, error) {
+//
+// # Only the root directory is scanned
+//
+// A directory symlink is recorded only when it sits directly in the root. The
+// scan used to recurse over the whole filesystem, and measurement is what
+// changed it: debian:bookworm carries 26 directory symlinks and
+// python:3.12-bookworm 88, of which exactly four in each are the merged-/usr
+// aliases this mechanism exists for. The other 84 in the larger image are
+// /usr/share/doc/libssl3 -> libssl-dev, /usr/share/zoneinfo/posix/America ->
+// ../America, and /usr/share/bug/*. None of them is a path alias in any sense a
+// sensor cares about, and each one was a global rewrite applied to every
+// observed path — which is to say each one was an entry in a table that is a
+// drift-suppression primitive, earned by dropping a symlink anywhere in the
+// image.
+//
+// Restricting to the root also closes a resolution differential that the
+// recursive version had no answer for. A relative target was resolved with
+// path.Join(path.Dir(name), target), which collapses ".." lexically, while the
+// kernel resolves it physically. With /a -> /usr and /a/b -> ../lib, this code
+// recorded /a/b -> /lib where the kernel says /usr/lib; fs.Stat confirmed only
+// that the lexical answer was a directory, not that it was the right one. At
+// the root, path.Dir(name) is always "." and there are no intermediate
+// components to disagree about, so the two resolutions cannot diverge.
+func BuildAliases(ctx context.Context, fsys fs.FS) ([]Alias, error) {
 	linkFS, ok := fsys.(fs.ReadLinkFS)
 	if !ok {
 		return nil, errors.New("index: filesystem cannot read symlinks; open it with OpenRootfs")
 	}
 
-	var aliases []Alias
-	entries := 0
-
-	err := fs.WalkDir(fsys, ".", func(name string, d fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			// An unreadable subtree is skipped, not fatal. This is safe in the
-			// one direction that matters: a missing alias can only stop an
-			// observed path from matching, which over-reports drift. It cannot
-			// hide drift. Failing the whole index here would let one odd
-			// directory disable the tool entirely.
-			if d != nil && d.IsDir() {
-				return fs.SkipDir
-			}
-			return nil
-		}
-
-		entries++
-		if entries > maxWalkEntries {
-			return errTooManyEntries
-		}
-
-		if d.Type()&fs.ModeSymlink == 0 {
-			return nil
-		}
-
-		resolved, ok := directoryLinkTarget(fsys, linkFS, name)
-		if !ok {
-			return nil
-		}
-
-		from, to := "/"+name, "/"+resolved
-		if from == to {
-			return nil
-		}
-
-		if len(aliases) >= maxAliases {
-			return errTooManyAliases
-		}
-		aliases = append(aliases, Alias{From: from, To: to})
-		return nil
-	})
+	root, err := fsys.Open(".")
 	if err != nil {
-		return nil, err
+		// Unlike an unreadable subdirectory, an unreadable root is fatal. An
+		// empty alias set is indistinguishable from an image that has no
+		// directory symlinks, so returning one here would report a filesystem
+		// the tool could not read as a filesystem that needed no rewriting —
+		// and every observed path through a real alias would then miss.
+		return nil, fmt.Errorf("index: open rootfs directory: %w", err)
+	}
+	defer root.Close() //nolint:errcheck // read-only; a close error cannot affect what was already read
+
+	dir, ok := root.(fs.ReadDirFile)
+	if !ok {
+		return nil, errors.New("index: rootfs directory does not support reading entries")
 	}
 
-	return aliases, nil
+	var aliases []Alias
+	seen := 0
+
+	for {
+		// Cancellation is checked per chunk rather than per entry: a chunk is
+		// bounded work, and checking a context on every directory entry costs
+		// more than it saves.
+		if err := ctx.Err(); err != nil {
+			return nil, fmt.Errorf("index: alias discovery: %w", err)
+		}
+
+		batch, err := dir.ReadDir(readDirChunk)
+		if err != nil && !errors.Is(err, io.EOF) {
+			return nil, fmt.Errorf("index: read rootfs directory: %w", err)
+		}
+
+		for _, d := range batch {
+			seen++
+			if seen > maxWalkEntries {
+				return nil, errTooManyEntries
+			}
+
+			if d.Type()&fs.ModeSymlink == 0 {
+				continue
+			}
+
+			name := d.Name()
+			resolved, ok := directoryLinkTarget(fsys, linkFS, name)
+			if !ok {
+				continue
+			}
+
+			from, to := "/"+name, "/"+resolved
+			if from == to {
+				continue
+			}
+
+			if len(aliases) >= maxAliases {
+				return nil, errTooManyAliases
+			}
+			aliases = append(aliases, Alias{From: from, To: to})
+		}
+
+		// ReadDir returns io.EOF only once the directory is exhausted, and may
+		// return a short batch without it, so the error is what ends the loop.
+		if errors.Is(err, io.EOF) {
+			return aliases, nil
+		}
+		if len(batch) == 0 {
+			return aliases, nil
+		}
+	}
 }
 
 // directoryLinkTarget reports the root-relative path a symlink names, if and
