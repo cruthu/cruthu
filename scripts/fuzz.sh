@@ -14,6 +14,21 @@ set -euo pipefail
 
 FUZZTIME="${1:-30s}"
 
+# Cap the time spent shrinking each coverage-expanding input.
+#
+# This is not a tuning knob, it is a correctness fix for the budget. Go defaults
+# -fuzzminimizetime to 60s, which is longer than this script's entire default
+# run, and a minimizing worker reports nothing until it finishes. Once the
+# corpus is large enough to keep finding coverage, every worker parks in
+# minimization and the remaining budget is spent shrinking inputs instead of
+# testing them. Measured on FuzzReadJSON at 30s: 66,858 executions with the
+# default, 7,400,229 with a short cap.
+#
+# Minimization only shrinks the corpus entry that gets stored, so capping it
+# costs slightly larger cache files and costs nothing in detection. Losing 99%
+# of the executions costs detection.
+MINIMIZETIME="${MINIMIZETIME:-1s}"
+
 # Packages that contain at least one fuzz target.
 mapfile -t packages < <(go list ./... 2>/dev/null)
 
@@ -28,7 +43,8 @@ for pkg in "${packages[@]}"; do
 		[ -n "$target" ] || continue
 		found=$((found + 1))
 		echo "==> fuzzing ${pkg} ${target} for ${FUZZTIME}"
-		if ! go test "$pkg" -run "^${target}$" -fuzz "^${target}$" -fuzztime "$FUZZTIME"; then
+		if ! go test "$pkg" -run "^${target}$" -fuzz "^${target}$" \
+			-fuzztime "$FUZZTIME" -fuzzminimizetime "$MINIMIZETIME"; then
 			failed=$((failed + 1))
 		fi
 	done
