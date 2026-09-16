@@ -51,6 +51,7 @@ func NewRootCommand(out, errOut io.Writer) *cobra.Command {
 	cmd.Flags().BoolVar(&showVersion, "version", false, "print version information and exit")
 
 	cmd.AddCommand(newVersionCommand(out))
+	cmd.AddCommand(newIndexCommand(out))
 
 	return cmd
 }
