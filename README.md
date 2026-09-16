@@ -4,24 +4,26 @@
 
 > **cruthú** (KRUH-hoo): Irish for *proof*; also *to create, to form*. The tool that proves what you created is what's running. The canonical spelling everywhere in this project (domain, module path, binary) is the plain-ASCII `cruthu`, without the fada.
 
-An SBOM is a contract written at build time. Runtime is reality. `cruthu` reconciles the two: it reads a container's build-time SBOM, watches which binaries and libraries the container actually loads and executes, and reports the difference. From that single data stream it produces three things:
+An SBOM is a contract written at build time. Runtime is reality. `cruthu` reconciles the two: it reads a container's build-time SBOM, watches which binaries and libraries the container actually loads and executes, and reports the difference. The signed record of that reconciliation — a cryptographic, offline-verifiable statement of what a workload actually did over a given window — is the product. Drift detection and in-use analysis are what make that record credible, not separate features bolted alongside it:
 
+- **Runtime attestation.** A signed, in-toto statement asserting that an image ran for a given window with the drift (if any) that was observed, verifiable offline with no vendor cooperation and no account. Supply-chain provenance extended past deploy into production.
 - **Drift detection.** Binaries or shared libraries that run but were never declared in the SBOM. This catches injected payloads, dropped cryptominers, and interactive `apt install` sessions in production.
 - **In-use analysis.** Which declared packages actually loaded, so you can prioritize the CVEs that matter. Most vulnerabilities in a typical image sit in code that never executes.
-- **Runtime attestation.** A cosign-signed, in-toto statement asserting that an image ran for a given window with zero drift. Supply-chain provenance extended past deploy into production.
 
 ## Why another container security tool
 
-Because the baseline here is a signed build artifact, not a learned statistical model. "A binary executed that isn't in the SBOM" is a fact, not an anomaly score. That means no training period, no false-positive tuning treadmill, and an explanation you can hand to an auditor.
+Runtime reachability — "which CVEs actually execute" — is already a funded, crowded category (Oligo, Upwind, Kodem, Endor Labs, Wiz, Aqua, Sysdig, Kubescape, among others), and every one of them is cloud-connected by design and sells access to a platform. Shipping a better free version of their headline feature would mean competing on their turf with none of their budget.
 
-Existing "in-use" analysis lives locked inside vendor platforms. `cruthu` is the vendor-neutral, SBOM-standard-native version whose output is a portable signed artifact. The evidence is the product, not the dashboard.
+What none of them offer is a portable, cryptographically verifiable record of conformance that a third party can check years later, offline, without the vendor's cooperation or continued existence. That's the gap `cruthu` targets: the baseline is a signed build artifact, not a learned statistical model, so "a binary executed that isn't in the SBOM" is a fact, not an anomaly score — no training period, no false-positive tuning treadmill, and an explanation you can hand to an auditor. Existing in-use analysis lives locked inside vendor platforms; `cruthu` is the vendor-neutral, standards-native version whose output still verifies with the vendor unplugged. The evidence is the product, not the dashboard.
 
 ## What cruthu is not
 
 - **Not an eBPF agent (yet).** v1 consumes events from existing sensors (Tetragon, Tracee) rather than maintaining its own kernel probes. An optional native sensor is under evaluation for a later release, not a v1 promise.
 - **Not an anomaly detector.** Matching is deterministic against a declared manifest. No machine learning, no baseline learning mode.
 - **Not an image mutator.** The debloat feature emits recommendations (a report, an apko package list). It never strips your image, so it can never break your image.
-- **Not an enforcement agent (in the OSS core).** It reports and exits nonzero for CI gating. Fleet-wide policy and enforcement belong to the future control plane.
+- **Not an enforcement agent (in the OSS core).** It reports and exits nonzero for CI gating. Fleet-wide policy belongs to the paid layer described below, not a bundled control plane.
+- **Not privileged.** No DaemonSet ships in this project, in v1 or planned beyond it — the controller is unprivileged and reads from the CRI on demand. A privileged kernel component from a solo maintainer is not something the target buyer (compliance-and-audit-focused, often air-gapped) will install.
+- **Not a dashboard.** If a web UI became required to verify a record, the thing that differentiates this tool from the platforms above would be gone.
 
 ## Status
 
@@ -53,13 +55,14 @@ Exit codes: `0` clean, `1` drift at or above the threshold, `2` tool error.
 |---|---|---|
 | `cruthu index` | Build a file-to-package index from an image and its SBOM | in progress, 0.1 |
 | `cruthu check` | Offline reconcile of an event log against an SBOM | in progress, 0.1 |
-| `cruthu watch` | Live reconcile from a Tetragon or Tracee stream | planned 0.2 |
-| `cruthu cve` | Prioritize scanner findings by in-use packages | planned 0.3 |
-| `cruthu slim` | Emit a debloat recommendation (report or apko YAML) | planned 0.4 |
-| `cruthu attest` | Produce a signed runtime-conformance attestation | planned 0.5 |
-| `cruthu verify` | Verify an existing runtime attestation on an image | planned 0.5 |
+| `cruthu attest` | Produce a signed runtime-conformance attestation | planned 0.2 |
+| `cruthu verify` | Verify an existing runtime attestation offline | planned 0.2 |
+| `cruthu export` | Bundle a date range plus a verification script for an assessor | planned 0.2 |
+| `cruthu watch` | Live reconcile from a Tetragon or Tracee stream | planned 0.3 |
+| `cruthu cve` | Prioritize scanner findings by in-use packages | planned 0.4 |
+| `cruthu slim` | Emit a debloat recommendation (report or apko YAML) | planned 0.5 |
 
-See [ROADMAP.md](ROADMAP.md) for the full 0.1 to 2.0 plan.
+See [ROADMAP.md](ROADMAP.md) for the full 0.0 to 1.x plan.
 
 ## Install
 
@@ -97,7 +100,9 @@ We hold a security tool to a higher bar and document how we meet it, rather than
 
 ## License
 
-Apache-2.0. The open-source core is, and will remain, Apache-2.0. A future hosted control plane (fleet management, org-wide policy, compliance evidence packs, attestation retention) will be a separate commercial offering; nothing a single team needs on a single cluster will move behind that line.
+Apache-2.0. The open-source core is, and will remain, Apache-2.0: the CLI and controller, full reconciliation, unprivileged operation, local signed records under your own key, the Rekor-only (keyless) signer, and the published predicate schema and verification path. Nothing in the verification path requires trusting or reaching a vendor, and that stays true regardless of what's paid.
+
+What's paid is receipt, not detection: an independent countersignature over your own record, long-horizon retention, and auditor-ready report generation, described further in [ROADMAP.md](ROADMAP.md#the-paid-layer). There is no hosted control plane and no agent that phones home — the wedge for this product is customers who can't do that by definition, so requiring it would disqualify the product from its own market. Everything that runs in your cluster, you operate.
 
 ## The name
 

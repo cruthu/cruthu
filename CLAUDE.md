@@ -55,7 +55,7 @@ Corollaries:
 ## Scope
 
 - **Never mutate a user's image.** The debloat feature emits recommendations — a report, an apko package list. It never strips anything, so it can never break anything.
-- **The OSS core reports; it does not enforce.** It exits nonzero for CI gating. Fleet-wide policy belongs to the future control plane.
+- **The OSS core reports; it does not enforce.** It exits nonzero for CI gating. Fleet-wide policy, independent countersignatures, and long-horizon retention belong to the paid layer described in `ROADMAP.md`; there is no separate hosted control plane and no code path that phones home.
 - Output schemas are versioned from their first commit (`cruthu.dev/index/v0`, `cruthu.dev/report/v0`). Changing one is a schema change and needs a note in `docs/decisions/`.
 
 ## Changes and pull requests
